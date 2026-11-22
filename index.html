@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mi Ruta del Día</title>
+<meta name="theme-color" content="#0f6b4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{
   --bg:#f3f4f1; --card:#fff; --ink:#15201b; --muted:#5f6b65; --line:#dde2dd;
@@ -168,6 +172,13 @@ select.search{appearance:auto}
 .gpsbar button{color:#155e75!important;border-color:#67e8f9!important}
 .gpsbar.wait{background:#fef9c3!important;border-color:#fde047!important;color:#713f12!important}
 .gpsbar.off{background:#f1f5f9!important;border-color:#cbd5e1!important;color:#334155!important}
+.tmap{position:relative;height:62vh;overflow:hidden;border-radius:14px;background:#e5e7eb;touch-action:none;user-select:none}
+#lmapIn{position:absolute;inset:0}
+#lmapIn img{max-width:none}
+.tmpin{position:absolute;width:34px;height:34px;border-radius:50%;color:#fff;font:800 13px system-ui,sans-serif;display:grid;place-items:center;border:2.5px solid #fff;box-shadow:0 1px 5px #0007;cursor:pointer}
+.tmattr{position:absolute;right:4px;bottom:3px;background:#ffffffcc;font:10px system-ui;padding:1px 4px;border-radius:4px;pointer-events:none}
+.tmz{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:6px}
+.tmz button{width:42px;height:42px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;font:800 22px system-ui;color:#0f172a;box-shadow:0 1px 4px #0003}
 .mvrow{display:flex;align-items:center;gap:6px;margin:6px 0 2px;font-size:12.5px;color:var(--muted);font-weight:700}
 .mvrow button{border:1px solid #cbd5e1;background:#f8fafc;border-radius:9px;padding:6px 12px;font-size:13px;font-weight:800;color:#0f172a}
 .herebar button{border:1px solid #a5b4fc;background:#fff;border-radius:9px;padding:7px 10px;font-size:13px;font-weight:700;color:#3730a3}
@@ -299,11 +310,6 @@ header{position:relative;background:linear-gradient(135deg,#0b6b4c,#0f8a63 60%,#
 .toast{border-radius:14px;bottom:auto;top:calc(10px + env(safe-area-inset-top));transform:translateX(-50%) translateY(-20px);width:max-content;max-width:92vw;box-shadow:0 8px 24px #0004}
 .toast.show{transform:translateX(-50%)}
 </style>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0f6b4f">
-<link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="icon-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
 </head>
 <body>
 <div class="wrap">
@@ -1923,41 +1929,82 @@ $("#list").addEventListener("click",e=>{
 });
 
 /* ---------- mapa de pendientes (esquema por calles y carreras) ---------- */
-/* mapa de verdad (OpenStreetMap) en la versión de internet */
-let lmap=null, lLayer=null;
+/* mapa de verdad (OpenStreetMap) en la versión de internet: mapa propio, sin librerías */
+const TM={z:14,cx:0,cy:0,items:[],line:[],me:null};
+const mX=(lng,z)=>(lng+180)/360*256*Math.pow(2,z);
+const mY=(lat,z)=>{ const r=lat*Math.PI/180; return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*256*Math.pow(2,z); };
+function tmDraw(){
+  const box=$("#lmap"); if(!box) return; const W=box.clientWidth, H=box.clientHeight, z=TM.z, n=Math.pow(2,z);
+  const x0=TM.cx-W/2, y0=TM.cy-H/2;
+  let h="";
+  for(let tx=Math.floor(x0/256);tx<=Math.floor((x0+W)/256);tx++) for(let ty=Math.floor(y0/256);ty<=Math.floor((y0+H)/256);ty++){
+    if(ty<0||ty>=n) continue; const wx=((tx%n)+n)%n;
+    h+=`<img src="https://tile.openstreetmap.org/${z}/${wx}/${ty}.png" style="position:absolute;left:${tx*256-x0}px;top:${ty*256-y0}px;width:256px;height:256px" draggable="false" alt="" onerror="this.style.visibility='hidden'">`;
+  }
+  const P=(ll)=>[mX(ll.lng,z)-x0, mY(ll.lat,z)-y0];
+  if(TM.line.length>1) h+=`<svg width="${W}" height="${H}" style="position:absolute;left:0;top:0;pointer-events:none"><polyline points="${TM.line.map(ll=>P(ll).join(",")).join(" ")}" fill="none" stroke="#0f6b4f" stroke-width="3" stroke-opacity=".6" stroke-dasharray="7 6"/></svg>`;
+  if(TM.me){ const [x,y]=P(TM.me), rad=Math.max(9,TM.me.acc/(156543*Math.cos(TM.me.lat*Math.PI/180)/n)); h+=`<div style="position:absolute;left:${x-rad}px;top:${y-rad}px;width:${rad*2}px;height:${rad*2}px;border-radius:50%;background:#2563eb22;border:1px solid #2563eb66;pointer-events:none"></div><div style="position:absolute;left:${x-9}px;top:${y-9}px;width:18px;height:18px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 1px 4px #0007;pointer-events:none"></div>`; }
+  TM.items.slice().reverse().forEach(it=>{ const [x,y]=P(it.ll); if(x<-30||y<-30||x>W+30||y>H+30) return;
+    h+=`<div class="tmpin" data-i="${it.i}" style="left:${x-17}px;top:${y-17}px;background:${it.col}">${it.lab}</div>`; });
+  h+=`<div class="tmattr">© OpenStreetMap</div>`;
+  $("#lmapIn").innerHTML=h;
+}
+function tmZoom(dz, fx, fy){
+  const box=$("#lmap"), W=box.clientWidth, H=box.clientHeight; const nz=Math.max(10,Math.min(19,TM.z+dz)); if(nz===TM.z) return;
+  fx=fx==null?W/2:fx; fy=fy==null?H/2:fy;
+  const wx=TM.cx-W/2+fx, wy=TM.cy-H/2+fy, f=Math.pow(2,nz-TM.z);
+  TM.cx=wx*f-fx+W/2; TM.cy=wy*f-fy+H/2; TM.z=nz; tmDraw();
+}
+function tmFit(pts){
+  const box=$("#lmap"), W=box.clientWidth-60, H=box.clientHeight-60;
+  if(!pts.length){ TM.z=12; TM.cx=mX(-74.08,12); TM.cy=mY(4.65,12); return; }
+  let z=17; for(;z>10;z--){ const xs=pts.map(p=>mX(p.lng,z)), ys=pts.map(p=>mY(p.lat,z)); if(Math.max(...xs)-Math.min(...xs)<=W && Math.max(...ys)-Math.min(...ys)<=H) break; }
+  const xs=pts.map(p=>mX(p.lng,z)), ys=pts.map(p=>mY(p.lat,z));
+  TM.z=z; TM.cx=(Math.min(...xs)+Math.max(...xs))/2; TM.cy=(Math.min(...ys)+Math.max(...ys))/2;
+}
+function tmBind(){
+  const box=$("#lmap"), ptr=new Map(); let start=null, moved=false, pinch=null, lastTap=0;
+  const layer=()=>$("#lmapIn");
+  box.addEventListener("pointerdown",e=>{ box.setPointerCapture(e.pointerId); ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(ptr.size===1){ start={x:e.clientX,y:e.clientY,cx:TM.cx,cy:TM.cy}; moved=false; }
+    if(ptr.size===2){ const [a,b]=[...ptr.values()]; const r=box.getBoundingClientRect(); pinch={d:Math.hypot(a.x-b.x,a.y-b.y), fx:(a.x+b.x)/2-r.left, fy:(a.y+b.y)/2-r.top}; } });
+  box.addEventListener("pointermove",e=>{ if(!ptr.has(e.pointerId)) return; ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pinch&&ptr.size===2){ const [a,b]=[...ptr.values()]; const sc=Math.hypot(a.x-b.x,a.y-b.y)/pinch.d; layer().style.transformOrigin=pinch.fx+"px "+pinch.fy+"px"; layer().style.transform=`scale(${sc})`; pinch.sc=sc; moved=true; return; }
+    if(start&&ptr.size===1){ const dx=e.clientX-start.x, dy=e.clientY-start.y; if(Math.abs(dx)+Math.abs(dy)>6) moved=true; if(moved){ layer().style.transform=`translate(${dx}px,${dy}px)`; } } });
+  const end=e=>{ if(!ptr.has(e.pointerId)) return; ptr.delete(e.pointerId);
+    if(pinch){ if(ptr.size<2){ layer().style.transform=""; const sc=pinch.sc||1; const dz=Math.round(Math.log2(sc)); if(dz) tmZoom(dz,pinch.fx,pinch.fy); pinch=null; start=null; } return; }
+    if(start&&ptr.size===0){
+      if(moved){ TM.cx=start.cx-(e.clientX-start.x); TM.cy=start.cy-(e.clientY-start.y); layer().style.transform=""; tmDraw(); }
+      else { const pin=document.elementFromPoint(e.clientX,e.clientY); const pp=pin&&pin.closest&&pin.closest(".tmpin");
+        if(pp) showPin(+pp.dataset.i);
+        else { const now=Date.now(); if(now-lastTap<350){ const r=box.getBoundingClientRect(); tmZoom(1,e.clientX-r.left,e.clientY-r.top); } lastTap=now; } }
+      start=null; } };
+  box.addEventListener("pointerup",end); box.addEventListener("pointercancel",end);
+}
 function openMapReal(){
   const r=routes[cur]; if(!r) return; setGeoFor(r);
   const ord=orderedIdx(r), pos={}; let k=0; ord.forEach(i=>{ if(r.stops[i].status==="pend") pos[i]=++k; });
-  const items=r.stops.map((s,i)=>({s,i,ll:(s.status==="pend"||s.status==="closed")?(GEO?llOf(s):(locOf(s)&&locOf(s).lat!=null?locOf(s):null)):null})).filter(x=>x.ll);
+  const where=s=>{ const L=locOf(s); if(L&&L.lat!=null) return {lat:L.lat,lng:L.lng}; return GEO?llOf(s):null; };
+  const items=r.stops.map((s,i)=>({s,i,ll:(s.status==="pend"||s.status==="closed")?where(s):null})).filter(x=>x.ll);
   const miss=r.stops.filter(s=>(s.status==="pend"||s.status==="closed")).length-items.length;
-  $("#mapSub").textContent=`${items.length} pendientes en el mapa`+(miss?` · ${miss} sin ubicar (guárdeles la ubicación)`:"")+". El número grande es el orden de la ruta corta; toque un punto para ver el cliente.";
-  $(".mapzoom").style.display="none";
+  TM.items=items.map(x=>({i:x.i, ll:x.ll, col:x.s.status==="closed"?"#ca8a04":(pos[x.i]===1?"#dc2626":"#0f6b4f"), lab:x.s.status==="closed"?"🔒":(r.order==="route"?pos[x.i]:x.s.n)}));
+  TM.line=r.order==="route"?ord.filter(i=>r.stops[i].status==="pend").map(i=>where(r.stops[i])).filter(Boolean):[];
+  TM.me=(gps&&Date.now()-gps.at<300000)?{lat:gps.lat,lng:gps.lng,acc:gps.acc}:null;
+  if(TM.me&&TM.line.length) TM.line.unshift(TM.me);
+  $("#mapSub").textContent=`${items.length} pendientes en el mapa`+(miss?` · ${miss} sin ubicar`:"")+(r.order==="route"?". El número es el orden de la ruta corta (el rojo es el siguiente).":". El número es el del cliente.")+" Toque un cliente para ver sus datos.";
+  $(".mapzoom").style.display="none"; $(".maplegend").style.display="none";
   $("#mapInfo").innerHTML="";
   open("#vMap");
-  $("#mapBox").innerHTML='<div id="lmap" style="height:62vh;border-radius:14px"></div>';
-  lmap&&lmap.remove();
-  lmap=L.map("lmap",{zoomControl:true});
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(lmap);
-  const b=[];
-  items.forEach(x=>{
-    const st=x.s.status, col=st==="closed"?"#eab308":(pos[x.i]===1?"#dc2626":"#0f6b4f");
-    const lab=st==="closed"?"🔒":(r.order==="route"?pos[x.i]:x.s.n);
-    const ic=L.divIcon({className:"",iconSize:[34,34],iconAnchor:[17,17],html:`<div style="width:34px;height:34px;border-radius:50%;background:${col};color:#fff;font:800 13px system-ui;display:grid;place-items:center;border:2.5px solid #fff;box-shadow:0 1px 4px #0006">${lab}</div>`});
-    L.marker([x.ll.lat,x.ll.lng],{icon:ic,title:"#"+x.s.n+" "+x.s.name}).addTo(lmap).on("click",()=>showPin(x.i));
-    b.push([x.ll.lat,x.ll.lng]);
-  });
-  if(gps&&Date.now()-gps.at<300000){
-    L.circle([gps.lat,gps.lng],{radius:Math.min(gps.acc,200),color:"#2563eb",weight:1,fillOpacity:.12}).addTo(lmap);
-    L.circleMarker([gps.lat,gps.lng],{radius:9,color:"#fff",weight:3,fillColor:"#2563eb",fillOpacity:1}).addTo(lmap).bindTooltip("Usted");
-    b.push([gps.lat,gps.lng]);
-  }
-  if(r.order==="route"){ const line=ord.filter(i=>r.stops[i].status==="pend").map(i=>{ const s=r.stops[i]; return GEO?llOf(s):(locOf(s)&&locOf(s).lat!=null?locOf(s):null); }).filter(Boolean).map(p=>[p.lat,p.lng]);
-    if(gpsUsable()) line.unshift([gpsFix.lat,gpsFix.lng]);
-    if(line.length>1) L.polyline(line,{color:"#0f6b4f",weight:3,opacity:.55,dashArray:"6 6"}).addTo(lmap); }
-  setTimeout(()=>{ lmap.invalidateSize(); if(b.length) lmap.fitBounds(b,{padding:[30,30],maxZoom:17}); else lmap.setView([4.65,-74.08],12); },80);
+  $("#mapBox").innerHTML='<div id="lmap" class="tmap"><div id="lmapIn"></div><div class="tmz"><button id="tmIn">＋</button><button id="tmOut">－</button>'+(TM.me?'<button id="tmMe">◎</button>':'')+'</div></div>';
+  $("#tmIn").onclick=e=>{ e.stopPropagation(); tmZoom(1); }; $("#tmOut").onclick=e=>{ e.stopPropagation(); tmZoom(-1); };
+  if(TM.me) $("#tmMe").onclick=e=>{ e.stopPropagation(); TM.z=Math.max(TM.z,16); TM.cx=mX(TM.me.lng,TM.z); TM.cy=mY(TM.me.lat,TM.z); tmDraw(); };
+  ["pointerdown","pointerup"].forEach(ev=>$(".tmz").addEventListener(ev,e=>e.stopPropagation()));
+  tmBind();
+  requestAnimationFrame(()=>{ tmFit(items.map(x=>x.ll).concat(TM.me?[TM.me]:[])); tmDraw(); });
 }
 function openMap(){
-  if(window.L&&!IN_CLAUDE) return openMapReal();
+  if(!IN_CLAUDE) return openMapReal();
+  $(".mapzoom").style.display=""; $(".maplegend").style.display="";
   const r=routes[cur]; if(!r) return; setGeoFor(r);
   const L=lastMarked(r);
   const items=r.stops.map((s,i)=>({s,i,p:ck(s)})).filter(x=>(x.s.status==="pend"||x.s.status==="closed") && x.p.c!=null);
@@ -2460,6 +2507,6 @@ setSync(); render(); gpsStart();
 })();
 })();
 </script>
-<script>if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
+<script>if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
 </body>
 </html>
