@@ -1114,7 +1114,7 @@ const GPS_OK=!IN_CLAUDE && !!navigator.geolocation;
 function gpsStart(){
   if(!GPS_OK||!gpsOn||gpsWatch!=null) return;
   try{ gpsWatch=navigator.geolocation.watchPosition(p=>{
-      gps={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy,at:Date.now()}; const was=gpsErr; gpsErr=null;
+      gps={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy,at:Date.now()}; const was=gpsErr; gpsErr=null; vozCheck(p.coords);
       // reordena solo si se movió más de ~60 m (para que la lista no brinque a cada rato)
       if(gps.acc<=150 && (!gpsFix || hav(gpsFix.lat,gpsFix.lng,gps.lat,gps.lng)>60 || Date.now()-gpsFix.at>180000)){ gpsFix=Object.assign({},gps); render(); }
       else if(was!=null) render();
@@ -1126,6 +1126,79 @@ function gpsStop(){ if(gpsWatch!=null){ try{ navigator.geolocation.clearWatch(gp
 function gpsUsable(){ return GPS_OK && gpsOn && gpsFix && Date.now()-gpsFix.at<300000; }
 function gpsPoint(){ return gpsUsable()?{_i:-1,_ll:{lat:gpsFix.lat,lng:gpsFix.lng}, name:"Tu ubicación (GPS)", address:"según el GPS"}:null; }
 function updGpsBar(){ const el=document.getElementById("gpsAcc"); if(el&&gps) el.textContent="±"+Math.round(gps.acc)+" m"; }
+/* ---------- 🔊 avisos de voz: le dice por el intercomunicador cuando va pasando cerca de un cliente ---------- */
+let vozOn=(()=>{ try{ return localStorage.getItem("mrd_voz")==="1"; }catch(e){ return false; } })();
+let vozR=(()=>{ try{ return +localStorage.getItem("mrd_vozr")||200; }catch(e){ return 200; } })();
+const VOZ_OK=GPS_OK && ("speechSynthesis" in window);
+const vozMem={};            // por cliente: cuándo se avisó "cerca" y "llegando"
+let vozVoice=null, wakeLk=null, actx=null, vozPrev=null, vozHead=null;
+function vozPickVoice(){ try{ const vs=speechSynthesis.getVoices(); vozVoice=vs.find(v=>/es[-_]CO/i.test(v.lang))||vs.find(v=>/es[-_](US|MX|419)/i.test(v.lang))||vs.find(v=>/^es/i.test(v.lang))||null; }catch(e){} }
+if(VOZ_OK){ vozPickVoice(); try{ speechSynthesis.onvoiceschanged=vozPickVoice; }catch(e){} }
+function pitido(){ try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==="suspended") actx.resume(); const t=actx.currentTime;
+  [0,0.25].forEach((d,k)=>{ const o=actx.createOscillator(), g=actx.createGain(); o.type="square"; o.frequency.value=k?1320:990;
+    g.gain.setValueAtTime(0.0001,t+d); g.gain.exponentialRampToValueAtTime(0.7,t+d+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+d+0.2);
+    o.connect(g); g.connect(actx.destination); o.start(t+d); o.stop(t+d+0.22); }); }catch(e){} }
+function hablar(txt,sinPitido){
+  if(!VOZ_OK) return;
+  if(!sinPitido) pitido();
+  try{ navigator.vibrate&&navigator.vibrate([300,120,300]); }catch(e){}
+  setTimeout(()=>{ try{ const u=new SpeechSynthesisUtterance(txt); u.lang=vozVoice?vozVoice.lang:"es-CO"; if(vozVoice) u.voice=vozVoice; u.volume=1; u.rate=0.95; speechSynthesis.speak(u); }catch(e){} }, sinPitido?0:550);
+}
+/* pantalla prendida: si se apaga, el navegador deja de leer el GPS */
+async function vozWake(){ try{ if(vozOn && navigator.wakeLock && !wakeLk && !document.hidden){ wakeLk=await navigator.wakeLock.request("screen"); wakeLk.addEventListener("release",()=>{ wakeLk=null; }); } }catch(e){ wakeLk=null; } }
+function vozUnwake(){ try{ wakeLk&&wakeLk.release(); }catch(e){} wakeLk=null; }
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) vozWake(); });
+function rumbo(a1,o1,a2,o2){ const r=Math.PI/180, y=Math.sin((o2-o1)*r)*Math.cos(a2*r), x=Math.cos(a1*r)*Math.sin(a2*r)-Math.sin(a1*r)*Math.cos(a2*r)*Math.cos((o2-o1)*r); return (Math.atan2(y,x)/r+360)%360; }
+function haciaDonde(lat,lng){
+  if(vozHead==null||!gps) return "";
+  const b=rumbo(gps.lat,gps.lng,lat,lng); let d=((b-vozHead+540)%360)-180;
+  if(Math.abs(d)<=50) return "adelante"; if(Math.abs(d)>=125) return "le quedó atrás"; return d>0?"a la derecha":"a la izquierda";
+}
+function vozCheck(c){
+  if(!vozOn||!VOZ_OK||!gps||!cur||!routes[cur]) return;
+  // hacia dónde va (para decirle si el cliente está adelante o le quedó atrás)
+  if(c && c.heading!=null && !isNaN(c.heading) && (c.speed||0)>1.5) vozHead=c.heading;
+  else if(vozPrev && hav(vozPrev.lat,vozPrev.lng,gps.lat,gps.lng)>25){ vozHead=rumbo(vozPrev.lat,vozPrev.lng,gps.lat,gps.lng); }
+  if(!vozPrev || hav(vozPrev.lat,vozPrev.lng,gps.lat,gps.lng)>25) vozPrev={lat:gps.lat,lng:gps.lng};
+  if(gps.acc>80) return; // GPS muy impreciso: mejor no avisar mal
+  const r=routes[cur], now=Date.now(), nuevos=[], llegando=[];
+  r.stops.forEach(s=>{
+    if(s.status!=="pend" && s.status!=="closed") return;
+    const L=llOf(s); if(!L) return;
+    const exact=!!locOf(s), d=hav(gps.lat,gps.lng,L.lat,L.lng), k=cur+"|"+s.n, m=vozMem[k]||(vozMem[k]={});
+    if(d>vozR+150){ if(m.cerca && now-m.cerca>180000){ delete vozMem[k]; } return; }
+    const it={s,d,exact,dir:haciaDonde(L.lat,L.lng)};
+    if(d<=60 && !m.lleg){ m.lleg=now; m.cerca=m.cerca||now; llegando.push(it); }
+    else if(d<=vozR && !m.cerca){ m.cerca=now; nuevos.push(it); }
+  });
+  if(!llegando.length && !nuevos.length) return;
+  const mts=it=>(it.exact?"":"más o menos ")+(Math.max(10,Math.round(it.d/10)*10))+" metros";
+  const quien=it=>`cliente ${it.s.n}, ${it.s.name||""}`+(it.s.status==="closed"?", que estaba cerrado,":"");
+  const partes=[];
+  llegando.sort((a,b)=>a.d-b.d).forEach(it=>partes.push(`Está llegando al ${quien(it)}. A ${mts(it)}${it.dir?", "+it.dir:""}.`));
+  nuevos.sort((a,b)=>a.d-b.d);
+  if(nuevos.length===1){ const it=nuevos[0]; partes.push(`Atención: va pasando cerca del ${quien(it)}. A ${mts(it)}${it.dir?", "+it.dir:""}.`); }
+  else if(nuevos.length>1){ partes.push(`Atención: tiene ${nuevos.length} clientes cerca. `+nuevos.slice(0,4).map(it=>`El ${it.s.n}, a ${mts(it)}${it.dir?", "+it.dir:""}`).join(". ")+"."); }
+  hablar(partes.join(" "));
+  const top=(llegando[0]||nuevos[0]);
+  vozBanner(top, llegando.length+nuevos.length);
+}
+function vozBanner(it,n){
+  let b=document.getElementById("vozBan");
+  if(!b){ b=document.createElement("div"); b.id="vozBan"; b.style.cssText="position:fixed;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));z-index:9999;background:#7c2d12;color:#fff;border-radius:16px;padding:12px 14px;font-size:16px;font-weight:700;box-shadow:0 10px 30px #0006;display:none";
+    b.addEventListener("click",()=>{ b.style.display="none"; const i=+b.dataset.i; ui.filter="all"; render(); const el=document.querySelector(`[data-ci="${i}"]`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); });
+    document.body.appendChild(b); }
+  const i=routes[cur].stops.indexOf(it.s); b.dataset.i=i;
+  b.innerHTML=`📢 #${it.s.n} ${esc(it.s.name||"")} · ${it.exact?"":"≈"}${Math.round(it.d)} m${it.dir?" · "+it.dir:""}${n>1?` <small style="font-weight:600">(+${n-1} más cerca)</small>`:""}<div style="font-size:12.5px;font-weight:600;opacity:.85;margin-top:3px">${esc(it.s.address||"")} · toque para verlo</div>`;
+  b.style.display="block"; clearTimeout(b._t); b._t=setTimeout(()=>{ b.style.display="none"; },25000);
+}
+function vozSet(on){
+  vozOn=on; try{ localStorage.setItem("mrd_voz",on?"1":"0"); }catch(e){}
+  if(on && !gpsOn){ gpsOn=true; try{ localStorage.setItem("mrd_gps","1"); }catch(e){} gpsErr=null; gpsStart(); }
+  if(on){ Object.keys(vozMem).forEach(k=>delete vozMem[k]); pitido(); hablar(`Avisos de voz prendidos. Le aviso cuando pase a ${vozR} metros de un cliente.`,true); vozWake(); setTimeout(()=>vozCheck(),4000); }
+  else { try{ speechSynthesis.cancel(); }catch(e){} vozUnwake(); }
+  render();
+}
 document.addEventListener("visibilitychange",()=>{ if(document.hidden) gpsStop(); else gpsStart(); });
 /* desde dónde arranca la ruta corta: GPS → "Estoy aquí" → el último que marcaste */
 function anchorPt(r){
@@ -1278,6 +1351,7 @@ function render(){
   const mvSeq=(r.order==="route" && !q && (ui.filter==="pend"||ui.filter==="all")) ? idx.filter(i=>r.stops[i].status==="pend"&&!isLater(r.stops[i])) : null;
   let recHtml="";
   if((ui.filter==="pend"||ui.filter==="all") && !q){ const ni=addrIssues(r).length; if(ni) recHtml+=`<div class="herebar" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412"><span>🔎 <b>${ni} ${ni>1?"direcciones":"dirección"}</b> para revisar: pueden desordenar la ruta corta</span><button id="addrOpen" style="color:#9a3412;border-color:#fdba74">Revisar</button></div>`; }
+  if(VOZ_OK && !q && ui.filter!=="done" && ui.filter!=="given") recHtml+=`<div class="herebar gpsbar ${vozOn?"":"off"}" style="${vozOn?"background:#fff7ed!important;border-color:#fdba74!important;color:#7c2d12!important":""}"><span>🔊 <b>Avisos de voz ${vozOn?"prendidos":"apagados"}</b>${vozOn?` · le avisa a ${vozR} m de cada cliente. Deje la app abierta y la pantalla prendida.`:" · le dice por el intercomunicador cuando pase cerca de un cliente."}</span><button id="vozDist">📏 ${vozR} m</button>${vozOn?`<button id="vozTest">Probar</button>`:""}<button id="vozToggle">${vozOn?"Apagar":"Prender"}</button></div>`;
   if(r.order==="route" && ui.filter!=="done" && ui.filter!=="given" && !q){
     const hp=hereActive(r)?herePoint(r):null, lm=lastMarked(r);
     const fromTxt=hp?(hp.name==="Tu ubicación"?esc(hp.address):`#${hp.n} ${esc(hp.name)}`):(lm>=0?`tu último punto: #${r.stops[lm].n} ${esc(r.stops[lm].name)}`:`el #${(r.stops[orderedIdx(r).find(j=>r.stops[j].status==="pend")]||{}).n||"1"}`);
@@ -1363,7 +1437,7 @@ function render(){
          ${goBtn("go w2","done","✓ Visitada"+sig)}`;
       more=`<button data-a="here" data-i="${i}">📍 Estoy aquí</button>${goBtn("","notfound","❓ No encontrada"+sig)}<button data-a="note" data-i="${i}">📝 Nota</button><button data-a="give" data-i="${i}">👥 Pasar a compañero</button>${locBtn}<button data-a="edit" data-i="${i}">✏️ Editar</button>`;
     }
-    return hdr+`<div class="card ${isDone||s.status==="given"?"done":""} ${isNext?"next":""} ${(s.status==="closed"||s.status==="notfound")?"issue":""} ${isLater(s)&&s.status==="pend"?"later":""}">
+    return hdr+`<div data-ci="${i}" class="card ${isDone||s.status==="given"?"done":""} ${isNext?"next":""} ${(s.status==="closed"||s.status==="notfound")?"issue":""} ${isLater(s)&&s.status==="pend"?"later":""}">
       ${isNext?`<span class="tag-next">SIGUIENTE PARADA</span>`:""}
       <div class="row1"><div class="num">${s.n}</div><div class="main">
         <div class="name">${esc(s.name)}</div>
@@ -2419,6 +2493,9 @@ $("#list").addEventListener("click",e=>{
   if(e.target.id==="hereSet") openHere();
   else if(e.target.closest("[data-tsel]")){ tramoSel=+e.target.closest("[data-tsel]").dataset.tsel; render(); }
   else if(e.target.closest("[data-tramo]")){ tramoSel=+e.target.closest("[data-tramo]").dataset.tramo; setTimeout(render,300); }
+  else if(e.target.id==="vozToggle"){ vozSet(!vozOn); toast(vozOn?"🔊 Avisos de voz prendidos":"Avisos de voz apagados"); }
+  else if(e.target.id==="vozDist"){ const op=[100,150,200,300]; vozR=op[(op.indexOf(vozR)+1)%op.length]||200; try{ localStorage.setItem("mrd_vozr",vozR); }catch(x){} Object.keys(vozMem).forEach(k=>delete vozMem[k]); render(); toast("📏 Le aviso a "+vozR+" metros"); if(vozOn) hablar("Le aviso a "+vozR+" metros",true); }
+  else if(e.target.id==="vozTest"){ hablar("Prueba. Atención: va pasando cerca del cliente 12. A 150 metros, le quedó atrás."); }
   else if(e.target.id==="gpsToggle"){ gpsOn=!gpsOn; try{ localStorage.setItem("mrd_gps",gpsOn?"1":"0"); }catch(x){} if(gpsOn){ gpsErr=null; gpsStart(); } else gpsStop(); render(); toast(gpsOn?"🛰️ GPS prendido":"GPS apagado"); }
   else if(e.target.id==="prefClr"){ const r=routes[cur], t=tplFor(r), old=t.before||[]; t.before=[]; delete r.before; persist(t.key); persist(cur); render(); toast("Se borraron tus ajustes del orden", ()=>{ t.before=old; persist(t.key); persist(cur); render(); }); }
   else if(e.target.id==="hereClr"){ const r=routes[cur]; delete r.here; persist(cur); render(); toast("Se quitó «Estoy aquí»"); }
@@ -2489,7 +2566,7 @@ $("#scanFile").addEventListener("change",async()=>{
 if(!Object.keys(tpls).length){ Object.values(routes).filter(r=>r.zone).sort((a,b)=>a.date<b.date?-1:1).forEach(r=>{ const k=tplKeyFor(r.zone,r.date); tpls[k]={key:k,zone:r.zone,dow:dowOf(r.date),stops:r.stops.map(pickInfo),from:r.date,updated:1}; }); }
 ensureToday(); saveLocal();
 cur = routes[todayKey()] ? todayKey() : ((ui.cur && routes[ui.cur]) ? ui.cur : null);
-setSync(); render(); gpsStart();
+setSync(); render(); gpsStart(); vozWake();
 
 (async function cloud(){
   if(!window.claude || typeof window.claude.use!=="function"){ setSync(); return; }
