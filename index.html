@@ -236,6 +236,10 @@ header{position:relative;background:linear-gradient(135deg,#0b6b4c,#0f8a63 60%,#
 .top h1{font-size:22px;letter-spacing:-.01em}
 .top h1 small{color:#d7f5e8;font-size:13px;margin-top:3px}
 .ring{position:relative;width:58px;height:58px;flex-shrink:0}
+.faltan{flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:64px;height:58px;padding:0 10px;border:0;border-radius:16px;background:#ffb020;color:#3a2600;box-shadow:0 3px 10px #0003;font:inherit;cursor:pointer}
+.faltan b{font-size:24px;line-height:1;font-weight:800}
+.faltan span{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+.faltan.cero{background:#d7f5e8;color:#0b6b4c}
 .ring svg{width:58px;height:58px;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:5}
 .ring .rb{stroke:#ffffff33}
@@ -316,6 +320,7 @@ header{position:relative;background:linear-gradient(135deg,#0b6b4c,#0f8a63 60%,#
   <header>
     <div class="top">
       <h1 id="title">Mi Ruta del Día<small id="subtitle">Sin ruta cargada</small></h1>
+      <button class="faltan" id="faltanBtn" type="button" hidden><b id="faltanN">0</b><span>faltan</span></button>
       <div class="ring" id="ring"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" class="rb"/><circle cx="22" cy="22" r="19" class="rf" id="ringFill"/></svg><b id="progTxt">0/0</b></div>
     </div>
     <nav class="tb">
@@ -1223,6 +1228,7 @@ function render(){
   const list=$("#list");
   $("#hdrRoute").hidden=!r; $("#fab").hidden=!r;
   if(!r){
+    $("#faltanBtn").hidden=true;
     $("#subtitle").textContent="Sin ruta cargada";
     list.innerHTML=`<div class="empty"><h2>Carga tu ruta</h2><p>Abre la app "Ruta en calle", copia todo el texto y pégalo aquí. También sirve la lista de paradas que te mandan.</p>
       <button class="big" id="emptyPaste">＋ Pegar lista</button></div>`;
@@ -1236,6 +1242,7 @@ function render(){
   if(given) extra.push(given+" pasada"+(given>1?"s":"")+" a compañeros");
   $("#subtitle").textContent=(r.zone?r.zone+" · ":"")+dateLabel(cur)+(extra.length?" · "+extra.join(" · "):"");
   $("#progTxt").textContent=done+"/"+mine;
+  { const fb=$("#faltanBtn"), f=Math.max(0,mine-done); fb.hidden=false; fb.onclick=()=>{ ui.filter="pend"; render(); window.scrollTo({top:0,behavior:"smooth"}); }; $("#faltanN").textContent=f; fb.classList.toggle("cero",f===0); fb.querySelector("span").textContent=f===0?"¡listo!":(f===1?"falta":"faltan"); }
   $("#barFill").style.width=(mine?done/mine*100:0)+"%";
   { const c=2*Math.PI*19, f=mine?done/mine:0; const rf=$("#ringFill"); rf.style.strokeDasharray=c; rf.style.strokeDashoffset=c*(1-f); }
   document.querySelectorAll("#segFilter button").forEach(b=>b.classList.toggle("on",b.dataset.f===ui.filter));
