@@ -1,4 +1,4 @@
-const C="mi-ruta-v5";
+const C="mi-ruta-v6";
 self.addEventListener("install",e=>{ self.skipWaiting(); e.waitUntil(caches.open(C).then(c=>c.addAll(["./","index.html","manifest.json","icon-192.png"]).catch(()=>{}))); });
 self.addEventListener("activate",e=>e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch",e=>{

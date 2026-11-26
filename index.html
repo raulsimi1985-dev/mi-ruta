@@ -1123,6 +1123,18 @@ function gpsStart(){
   }catch(e){ gpsErr=-1; }
 }
 function gpsStop(){ if(gpsWatch!=null){ try{ navigator.geolocation.clearWatch(gpsWatch); }catch(e){} } gpsWatch=null; }
+/* al marcar un cliente: apaga y prende el GPS solo, y pide una ubicación nueva (sin usar la vieja guardada)
+   para que el siguiente cliente salga de una vez desde donde estás */
+let gpsRefT=null;
+function gpsRefresh(){
+  if(!GPS_OK||!gpsOn) return;
+  gpsStop(); gpsFix=null;            // mientras llega la nueva, la ruta sale desde el cliente que acabaste de marcar
+  clearTimeout(gpsRefT);
+  const take=p=>{ gps={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy,at:Date.now()}; gpsErr=null;
+    if(gps.acc<=200){ gpsFix=Object.assign({},gps); render(); } else updGpsBar(); };
+  try{ navigator.geolocation.getCurrentPosition(take, ()=>{}, {enableHighAccuracy:true, maximumAge:0, timeout:20000}); }catch(e){}
+  gpsRefT=setTimeout(gpsStart, 400);  // vuelve a prender el seguimiento
+}
 function gpsUsable(){ return GPS_OK && gpsOn && gpsFix && Date.now()-gpsFix.at<300000; }
 function gpsPoint(){ return gpsUsable()?{_i:-1,_ll:{lat:gpsFix.lat,lng:gpsFix.lng}, name:"Tu ubicación (GPS)", address:"según el GPS"}:null; }
 function updGpsBar(){ const el=document.getElementById("gpsAcc"); if(el&&gps) el.textContent="±"+Math.round(gps.acc)+" m"; }
@@ -1471,6 +1483,7 @@ function onAct(e){
     s.status=a; s.at=Date.now();
     const n=b.dataset.n!==undefined?r.stops[+b.dataset.n]:null;
     persist(cur);
+    gpsRefresh();
     setTimeout(()=>{ render(); window.scrollTo(0,0); },50);
     toast(ST[a]+(n?" · Siguiente: #"+n.n+" "+n.name:""), ()=>{ s.status=prev.status; s.at=prev.at; persist(cur); render(); });
   }
@@ -1483,10 +1496,10 @@ function onAct(e){
     const v=a==="stkyes"?"si":"no", prev=s.stk; s.stk=v; s.stkAt=Date.now();
     // marcar el sticker cuenta como visita: sale de pendientes y la siguiente se calcula desde aquí
     if(s.status==="pend"||s.status==="closed"){ s.status="done"; s.at=s.stkAt; }
-    persist(cur); render(); window.scrollTo(0,0); if(prev!==v||!s.photo) takePhoto(i);
+    gpsRefresh(); persist(cur); render(); window.scrollTo(0,0); if(prev!==v||!s.photo) takePhoto(i);
   }
   else if(a==="stkclosed"){
-    const prev={status:s.status,at:s.at}; s.status="closed"; s.at=Date.now(); persist(cur);
+    const prev={status:s.status,at:s.at}; s.status="closed"; s.at=Date.now(); persist(cur); gpsRefresh();
     setTimeout(()=>{ render(); window.scrollTo(0,0); },50);
     toast("🔒 #"+s.n+" cerrado · quedó abajo en «Para volver»", ()=>{ s.status=prev.status; s.at=prev.at; persist(cur); render(); });
   }
