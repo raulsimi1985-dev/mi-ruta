@@ -1065,7 +1065,7 @@ async function flush(key){
   }finally{ writing[key]=false; }
 }
 function setSync(msg){
-  $("#sync").textContent = msg || (cloudOK ? "☁️ Guardado en tu cuenta (lo ves desde cualquier dispositivo)" : "📱 Guardado en este teléfono");
+  $("#sync").textContent = msg || (cloudOK ? "☁️ Guardado en tu cuenta (lo ves desde cualquier dispositivo)" : "📱 Guardado en este teléfono") + " · v27nov";
 }
 
 /* ---------- dup detection ---------- */
@@ -2615,6 +2615,9 @@ setSync(); render(); gpsStart(); vozWake();
 })();
 </script>
 <script src="carta.js"></script>
-<script>if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
+<script>if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>{ try{ r.update(); }catch(e){} }).catch(()=>{});
+  let recargo=false; navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(recargo) return; recargo=true; location.reload(); });
+}</script>
 </body>
 </html>
