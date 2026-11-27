@@ -1020,6 +1020,7 @@ function migrate(){ fixed.notes=fixed.notes||{}; fixed.locs=fixed.locs||{};
   Object.values(tpls).forEach(t=>(t.stops||[]).forEach(s=>{ if(s.address){ const g=grid(s.address,s.hood); s.c=g.c; s.k=g.k; } })); }
 migrate();
 
+function todayKeyOf(ts){ const d=new Date(ts); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function todayKey(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 const DIAS=["dom","lun","mar","mié","jue","vie","sáb"], MESES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 function dateLabel(k){ const [y,m,d]=k.split("-").map(Number); const dt=new Date(y,m-1,d); return DIAS[dt.getDay()]+" "+d+" "+MESES[m-1]+" "+y; }
@@ -1456,6 +1457,7 @@ function render(){
         <div class="addr">${esc(s.address||"Sin dirección")}</div>
         <div class="chips">${chips.join("")}</div>
       </div><button class="cajabox" data-a="copy" data-i="${i}"><small>Caja</small><b>${esc(s.qr||"—")}</b><span>📋 Copiar datos</span></button></div>
+      <button class="cartabtn" data-a="carta" data-i="${i}">📄 Carta de retiro${(window.cartaHecha&&cartaHecha(s.qr))?` <small>· hecha ${shortDate(todayKeyOf(cartaHecha(s.qr)))}</small>`:""}</button>
       ${s.qr&&fixed.notes[s.qr]?`<div class="fixnote">📌 ${esc(fixed.notes[s.qr])}</div>`:""}
       ${s.note?`<div class="note">📝 ${esc(s.note)}</div>`:""}
       ${stkRow(s,i)}
@@ -1474,6 +1476,7 @@ function onAct(e){
   if(b.closest("#vScan")) setTimeout(closeAll,30);
   const r=routes[cur], i=+b.dataset.i, s=r.stops[i];
   const a=b.dataset.a;
+  if(a==="carta"){ if(window.abrirCarta) abrirCarta(s); else toast("Cargando la carta… intente otra vez"); return; }
   if(a==="copy"){
     const t=[s.name, s.address, s.qr?"Código QR "+s.qr:""].filter(Boolean).join("\n");
     copy(t).then(ok=>toast(ok?"Copiado: nombre, dirección y QR":"No se pudo copiar"));
@@ -1545,6 +1548,7 @@ function toast(msg,undo){
 
 /* sheets */
 function open(id){ $(id).classList.add("show"); }
+window.addEventListener("carta-hecha",()=>{ try{ render(); }catch(e){} });
 function closeAll(){ document.querySelectorAll(".veil").forEach(v=>v.classList.remove("show")); }
 document.querySelectorAll(".veil").forEach(v=>v.addEventListener("click",e=>{ if(e.target===v||e.target.closest("[data-close]")) v.classList.remove("show"); }));
 
@@ -2604,6 +2608,7 @@ setSync(); render(); gpsStart(); vozWake();
 })();
 })();
 </script>
+<script src="carta.js"></script>
 <script>if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});</script>
 </body>
 </html>
