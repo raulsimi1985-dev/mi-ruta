@@ -254,6 +254,10 @@ header{position:relative;background:linear-gradient(135deg,#0b6b4c,#0f8a63 60%,#
 .seg{background:#dfe6e2;border-radius:12px}
 #segFilter{flex:1 1 100%;display:grid;grid-template-columns:repeat(4,1fr)}
 #segFilter button,#segOrder button{text-align:center;padding:8px 6px;font-size:13.5px}
+#segFilter .notasf{grid-column:1/-1;margin-top:3px}
+#segFilter .notasf span{font-weight:800}
+.cartaico{flex-shrink:0;position:relative;width:38px;height:38px;border:1px solid #f3c4c7;background:#fff5f5;border-radius:10px;font-size:19px;line-height:1;display:grid;place-items:center;cursor:pointer;padding:0}
+.cartaico i{position:absolute;right:-5px;top:-5px;font-style:normal;font-size:10px;font-weight:800;background:#16a34a;color:#fff;border-radius:99px;width:16px;height:16px;display:grid;place-items:center}
 .seg button.on{color:var(--brand);box-shadow:0 1px 3px #0002}
 .search{border-radius:14px;border-color:var(--line);padding:11px 14px;font-size:15px;background:#fff;box-shadow:0 1px 2px #0000000d}
 .sync{margin:2px 2px 0;text-align:right;font-size:11.5px}
@@ -338,6 +342,7 @@ header{position:relative;background:linear-gradient(135deg,#0b6b4c,#0f8a63 60%,#
           <button data-f="done">Visitadas</button>
           <button data-f="given">Pasadas</button>
           <button data-f="all">Todas</button>
+          <button data-f="notas" class="notasf">📌 Clientes con nota <span id="notasN"></span></button>
         </div>
         <div class="seg" id="segOrder">
           <button data-o="list" class="on">Orden lista</button>
@@ -1332,6 +1337,7 @@ function render(){
   $("#barFill").style.width=(mine?done/mine*100:0)+"%";
   { const c=2*Math.PI*19, f=mine?done/mine:0; const rf=$("#ringFill"); rf.style.strokeDasharray=c; rf.style.strokeDashoffset=c*(1-f); }
   document.querySelectorAll("#segFilter button").forEach(b=>b.classList.toggle("on",b.dataset.f===ui.filter));
+  { const nn=r.stops.filter(x=>x.qr&&fixed.notes[x.qr]).length; $("#notasN").textContent="("+nn+")"; }
   document.querySelectorAll("#segOrder button").forEach(b=>b.classList.toggle("on",b.dataset.o===(r.order||"list")));
   const q=deacc($("#q").value.trim().toLowerCase());
   const dups=dupMap(r.stops);
@@ -1341,6 +1347,7 @@ function render(){
     if(ui.filter==="pend" && (s.status==="done"||s.status==="given")) return false;
     if(ui.filter==="given" && s.status!=="given") return false;
     if(ui.filter==="done" && s.status!=="done") return false;
+    if(ui.filter==="notas" && !(s.qr&&fixed.notes[s.qr])) return false;
     if(q && !deacc(("#"+s.n+" "+s.name+" "+s.address+" "+s.qr+" "+s.hood+" "+(fixed.notes[s.qr]||"")+(s.qr&&!locOf(s)?" falta ubicacion":"")).toLowerCase()).includes(q)) return false;
     return true;
   });
@@ -1348,7 +1355,7 @@ function render(){
   if(!idx.length){
     list.innerHTML = ui.filter==="pend" && !q && done===mine
       ? `<div class="empty"><h2>🎉 ¡Ruta terminada!</h2><p>Visitaste tus ${mine} paradas${given?` (${given} se pasaron a compañeros)`:""}.</p><button class="big" id="emptyRep">📤 Mandar resumen</button></div>`
-      : `<div class="empty"><p>No hay paradas aquí.</p></div>`;
+      : `<div class="empty"><p>${ui.filter==="notas"&&!q?"Ningún cliente de esta ruta tiene nota fija.":"No hay paradas aquí."}</p></div>`;
     const er=$("#emptyRep"); if(er) er.onclick=openReport;
     return;
   }
@@ -1456,8 +1463,7 @@ function render(){
         <div class="name">${esc(s.name)}</div>
         <div class="addr">${esc(s.address||"Sin dirección")}</div>
         <div class="chips">${chips.join("")}</div>
-      </div><button class="cajabox" data-a="copy" data-i="${i}"><small>Caja</small><b>${esc(s.qr||"—")}</b><span>📋 Copiar datos</span></button></div>
-      <button class="cartabtn" data-a="carta" data-i="${i}">📄 Carta de retiro${(window.cartaHecha&&cartaHecha(s.qr))?` <small>· hecha ${shortDate(todayKeyOf(cartaHecha(s.qr)))}</small>`:""}</button>
+      </div><button class="cartaico" data-a="carta" data-i="${i}" title="Carta de retiro" aria-label="Carta de retiro">✉️${(window.cartaHecha&&cartaHecha(s.qr))?`<i>✓</i>`:""}</button><button class="cajabox" data-a="copy" data-i="${i}"><small>Caja</small><b>${esc(s.qr||"—")}</b><span>📋 Copiar datos</span></button></div>
       ${s.qr&&fixed.notes[s.qr]?`<div class="fixnote">📌 ${esc(fixed.notes[s.qr])}</div>`:""}
       ${s.note?`<div class="note">📝 ${esc(s.note)}</div>`:""}
       ${stkRow(s,i)}
